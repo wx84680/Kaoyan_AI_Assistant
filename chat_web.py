@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-AI 聊天前端（Streamlit，云端单程序版）
-- 不再依赖本地 Flask，直接调用 Coze v3 接口
+重庆专升本AI规划助手（Streamlit，云端单程序版）
+- 不依赖本地 Flask，直接调用 Coze v3 接口
 - 配置全部来自环境变量：COZE_API_TOKEN、COZE_BOT_ID
-- answer 显示在聊天气泡里，sources 以灰色小字显示在下方
+- answer 显示在聊天气泡里，sources 以彩色卡片展示在回答正下方
 """
 import os
 import time
@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---------- 基本设置 ----------
-st.set_page_config(page_title="AI 聊天助手", layout="centered")
+st.set_page_config(page_title="重庆专升本AI规划助手", page_icon="🎓", layout="centered")
 
 # ---------- 配置（全部来自环境变量） ----------
 COZE_API_TOKEN = os.getenv("COZE_API_TOKEN", "").strip().strip('"').strip("'")
@@ -139,13 +139,49 @@ def call_coze_api(question):
         answer = "（没有获取到 AI 回答）"
     return answer, sources
 
+# ==================== 以下为 UI 部分 ====================
+
+# 页面主题色（科技感蓝色）
+THEME_COLOR = "#2f6fed"
+
+def _escape_html(text):
+    """转义来源文本里的 HTML 特殊字符，防止破坏页面结构"""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 def show_sources(sources):
-    """用灰色小字把引用来源展示在回答下方"""
-    if not sources:
+    """用彩色卡片 + 标签样式把引用来源展示在回答正下方；来源为空则不显示"""
+    if not sources:  # 防报错兜底：空来源直接不渲染任何内容
         return
-    st.caption("引用来源：")
+
+    cards = []
     for i, src in enumerate(sources, start=1):
-        st.caption(f"{i}. {src}")
+        cards.append(
+            f'<div style="display:flex;align-items:flex-start;margin:4px 0;'
+            f'background:linear-gradient(90deg,#eaf2ff 0%,#f6faff 100%);'
+            f'border:1px solid #d6e4ff;border-left:4px solid {THEME_COLOR};'
+            f'border-radius:8px;padding:6px 10px;">'
+            f'<span style="flex-shrink:0;background:{THEME_COLOR};color:#ffffff;'
+            f'border-radius:6px;font-size:12px;line-height:1;padding:4px 8px;'
+            f'margin-right:8px;">来源 {i}</span>'
+            f'<span style="font-size:13px;color:#33415c;line-height:1.6;">'
+            f'{_escape_html(src)}</span></div>'
+        )
+
+    header = (
+        f'<div style="font-size:13px;font-weight:600;color:{THEME_COLOR};'
+        f'margin-top:8px;">📚 引用来源</div>'
+    )
+    st.markdown(header + "".join(cards), unsafe_allow_html=True)
+
+# ---------- 侧边栏：助手设置 ----------
+with st.sidebar:
+    st.header("⚙️ 助手设置")
+    if st.button("🗑️ 清空聊天记录", use_container_width=True):
+        st.session_state.messages = []  # 清空历史，页面恢复初始状态
+        st.rerun()
+    st.caption(f"当前消息数：{len(st.session_state.messages)}")
+    st.divider()
+    st.caption("💡 输入框固定在页面底部，输入问题后回车或点发送即可。")
 
 # ---------- 启动配置检查 ----------
 if not COZE_API_TOKEN or not COZE_BOT_ID:
@@ -156,30 +192,45 @@ if not COZE_API_TOKEN or not COZE_BOT_ID:
     )
     st.stop()
 
-st.title("AI 聊天助手")
+st.title("🎓 重庆专升本AI规划助手")
+
+# ---------- 欢迎卡片（仅在没有聊天记录时显示） ----------
+if not st.session_state.messages:
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#eaf2ff 0%,#f0f7ff 100%);'
+        f'border:1px solid #d6e4ff;border-radius:12px;padding:16px 20px;'
+        f'margin:10px 0;">'
+        f'<div style="font-size:16px;font-weight:600;color:{THEME_COLOR};">'
+        f'👋 你好，我是你的专升本AI规划助手！</div>'
+        f'<div style="font-size:13px;color:#33415c;margin-top:6px;line-height:1.8;">'
+        f'你可以问我：招生政策、院校对比、备考时间规划、志愿填报建议……'
+        f'<br>在页面底部的输入框中输入问题，即可开始对话。</div></div>',
+        unsafe_allow_html=True,
+    )
 
 # ---------- 渲染历史聊天记录 ----------
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    avatar = "🧑‍🎓" if msg["role"] == "user" else "🤖"
+    with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
         if msg["role"] == "assistant":
             show_sources(msg.get("sources", []))
 
-# ---------- 底部输入框（自带发送按钮） ----------
+# ---------- 底部输入框（Streamlit 原生固定在页面最底部，自带发送按钮） ----------
 if prompt := st.chat_input("请输入你的问题，回车或点发送按钮..."):
     # 1. 立即显示用户自己的消息
     st.session_state.messages.append({"role": "user", "content": prompt, "sources": []})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="🧑‍🎓"):
         st.markdown(prompt)
 
     # 2. 直接调用 Coze，显示 AI 回答
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="🤖"):
         try:
             with st.spinner("AI 正在思考..."):
                 answer, sources = call_coze_api(prompt)
 
             st.markdown(answer)        # 回答放在聊天气泡里
-            show_sources(sources)      # 引用来源：灰色小字在下方
+            show_sources(sources)      # 引用来源：彩色卡片在回答正下方
 
             st.session_state.messages.append(
                 {"role": "assistant", "content": answer, "sources": sources}
